@@ -1,0 +1,32 @@
+error_log /dev/stdout info;
+
+server {
+
+	# display access log to stdout on docker.
+	access_log /dev/stdout;
+
+	include snippets/snakeoil.conf;
+
+	listen 8080 default_server;	
+	# don't need IPV6 ; I am behind a reverse-proxy
+	# listen [::]:8080 default_server;
+
+	# no need for HTTPS ; I am behind a reverse-proxy
+	# listen 443 ssl default_server;
+	# listen [::]:443 ssl default_server;
+
+	root /var/www/html;
+
+	index index.html index.htm index.php;
+
+	server_name _;
+
+	location / {
+		try_files $uri $uri/ =404;
+	}
+
+	location ~ \.php$ {
+		include snippets/fastcgi-php.conf;
+		fastcgi_pass unix:/run/php/php7.3-fpm.sock;
+	}
+}

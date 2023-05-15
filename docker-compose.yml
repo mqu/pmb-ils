@@ -1,0 +1,107 @@
+version: '3.7'
+
+# URL: https://github.com/mqu/pmb-ils
+# install: http://localhost:8080/tables/install.php
+# default account: admin/admin
+
+x-defaults-std:
+    &default-settings-std
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20k"
+        max-file: "5"
+    tmpfs:
+      - /tmp
+      - /run
+    networks:
+     - private
+
+x-defaults-ress-limit:
+    &defaults-ress-limit
+    deploy:
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 150M
+        reservations:
+          memory: 25M
+    ulimits:
+      nproc: 512
+      nofile:
+        soft: 1024
+        hard: 2048
+    mem_swappiness: 0
+    memswap_limit: '1000M'
+    cap_drop:
+     - ALL
+
+x-defaults-healthcheck:
+   &defaults-healthcheck
+   healthcheck:
+      interval: 2m
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+services:
+  db:
+    <<: *default-settings-std
+    <<: *defaults-ress-limit
+    <<: *defaults-healthcheck
+    image: mariadb:10.10-jammy
+    # read_only: true
+    user: 1000:1000
+    environment:
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD-admin}
+      - MARIADB_USER=${DB_USER-admin}
+      - MARIADB_PASSWORD=${DB_PASSWORD-admin}
+      - MARIADB_DATABASE=${DB_DATABASE_NAME-pmb}
+      - MARIADB_CHARACTER_SET=utf8
+      - MARIADB_COLLATE=utf8mb4_unicode_ci
+    command: mysqld --character-set-server=utf8 --collation-server=utf8_unicode_ci --sql_mode=NO_AUTO_CREATE_USER --key_buffer_size=1000000000 --join_buffer_size=4000000
+    volumes: 
+        # issue: sudo mkdir -p ./data/mysql ; sudo chown -R 1000:1000 ./data/mysql
+        - ${VOL_MARIADB-./data/mysql/}:/var/lib/mysql
+    tmpfs:
+      - /tmp
+      - /run/mysqld
+    healthcheck:
+       test: ["CMD", "mysqladmin" ,"ping", "-h", "localhost"]
+
+  app:
+    <<: *default-settings-std
+    <<: *defaults-ress-limit
+    <<: *defaults-healthcheck
+    image: ${PMB_TAG_NAME-pmb-ils}:${PMB_VERSION-7.5.1}
+    # user: 1000:1000
+    # read_only: true
+    build:
+       context: ./build/pmb
+       args:
+        # download URL: https://forge.sigb.net/projects/pmb/files
+        - PMB_VERSION=${PMB_VERSION-7.5.1}
+        - PMB_URL=${PMB_URL-https://forge.sigb.net/attachments/download/4132/pmb7.5.1.zip}
+    ports:
+      - "${PMB_EXTERNAL_PORT-127.0.0.1:8080}:8080"
+    environment:
+      - MYSQL_HOST=db
+    volumes: 
+        - ./data/etc:/etc/pmb
+    depends_on:
+      - db
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+    healthcheck:
+      test: "curl -f http://localhost:8080/ || exit 1"
+
+networks:
+  private:
